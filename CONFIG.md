@@ -1,5 +1,5 @@
 # The Bystro configuration file
-<h4>TL;DR: A YAML config file that idempotently describes both database creation and annotation output. Used to build a new database, run an annotation, or precisely replicate a prior experiment</h4>
+#### TL;DR: A YAML config file that idempotently describes both database creation and annotation output. Used to build a new database, run an annotation, or precisely replicate a prior experiment
 
 Templates of every Bystro configuration used on https://bystro.io is found in the config folder as <assembly>.clean.yml
   - To use them, simply update the `database_dir` property (described below) to the one that contains the `index` folder of your downloaded database (Database download, setup information found in [INSTALL.md](INSTALL.md))
@@ -107,7 +107,7 @@ These meta fields are also generated for each track that is built, so that track
     
 
 ## Directories
-<h4>TL;DR: Where the Bystro database, source files, and scratch folders are located</h4>
+#### TL;DR: Where the Bystro database, source files, and scratch folders are located
 
 1. `files_dir`: (String) The parent folder within which each track's ```local_files``` are located
   * Bystro automatically checks for ```local_files``` at ```parent/trackName/file```
@@ -155,7 +155,7 @@ These meta fields are also generated for each track that is built, so that track
       - so a `temp_dir` disk of ~100GB is enough for practically any annotation when in `--compress` is set
 
 ## Chromosomes (String)
-<h4>TL;DR: What chromosomes Bystro will build and annotate</h4>
+#### TL;DR: What chromosomes Bystro will build and annotate
 
 Input and and database source records are foremost identified by their chromosome and position.
 Therefore, we must agree on the acceptable chromosomes during database building, and then allow only these during annotation
@@ -200,9 +200,14 @@ Bystro currently expects UCSC conventions for chromosome names, meaning they sho
         - Here we transform the Clinvar fields Chromosome, Start, Stop to `chrom`, `chromStart`, `chromEnd`
 
 ## Tracks (Array[Seq::Tracks])
-<h4>TL;DR: The fields Bystro will build and annotate</h4>
+#### TL;DR: The fields Bystro will build and annotate
 
 The `tracks` property is an `Array` of tracks conforming to the `Seq::Tracks` package interface
+
+#### Each track automatically inherits top-level YAML config properties, such as `chromosomes`, `database_dir`, etc
+  - This allows each track to be configured as a self-contained module, while keeping all Bystro modules coordinated
+  - For instance, `databse_dir`, `files_dir`. and `chromosomes` are needed by all tracks, and automatically available
+  - Another example is the `vcfProcessor`. Both `Seq` and `Seq::Tracks::Vcf::Build` packages depends on it.
 
 Required properties:
  1. `name` : The unique identifier for this track
