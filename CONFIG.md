@@ -207,7 +207,7 @@ The `tracks` property is an `Array` of tracks conforming to the `Seq::Tracks` pa
 #### Each track automatically inherits top-level YAML config properties, such as `chromosomes`, `database_dir`, etc
   - This allows each track to be configured as a self-contained module, while keeping all Bystro modules coordinated
   - For instance, `databse_dir`, `files_dir`. and `chromosomes` are needed by all tracks, and automatically available
-  - Another example is the `vcfProcessor`. Both `Seq` and `Seq::Tracks::Vcf::Build` packages depends on it.
+  - Another example is the `vcfProcessor`. Both `Seq` and `Seq::Tracks::Vcf::Build` packages depend on it.
 
 Required properties:
  1. `name` : The unique identifier for this track
