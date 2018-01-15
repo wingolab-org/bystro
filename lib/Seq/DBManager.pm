@@ -94,19 +94,21 @@ sub BUILD {
 };
 
 # Our packing function
-my $mp = Data::MessagePack->new();
-$mp->prefer_integer(); #treat "1" as an integer, save more space
+#treat "1" as an integer, save more space
+#treat .00012 as a single precision float, saving 4 bytes.
+my $mp = Data::MessagePack->new()->prefer_integer()->prefer_float32();
 
 ################### DB Read, Write methods ############################
 # Unsafe for $_[2] ; will be modified if an array is passed
 # Read transactions are committed by default
 sub dbReadOne {
-  #my ($self, $chr, $posAref, $skipCommit) = @_;
-  #== $_[0], $_[1], $_[2], $_[3] (don't assign to avoid copy)
+  #my ($self, $chr, $posAref, $skipCommit, $stringKeys,) = @_;
+  #== $_[0], $_[1], $_[2], $_[3],          $_[4] (don't assign to avoid copy)
 
   #It is possible not to find a database in $dbReadOnly mode (for ex: refSeq for a while didn't have chrM)
   #http://ideone.com/uzpdZ8
-  my $db = $_[0]->_getDbi($_[1]) or return undef;
+  #                      #$name, $dontCreate, $stringKeys
+  my $db = $_[0]->_getDbi($_[1], 1, $_[4]) or return undef;
 
   if(!$db->{db}->Alive) {
     $db->{db}->Txn = $db->{env}->BeginTxn();
@@ -135,15 +137,16 @@ sub dbReadOne {
 # Unsafe for $_[2] ; will be modified if an array is passed
 # Read transactions are committed by default
 sub dbRead {
-  #my ($self, $chr, $posAref, $skipCommit) = @_;
-  #== $_[0], $_[1], $_[2],    $_[3] (don't assign to avoid copy)
+  #my ($self, $chr, $posAref, $skipCommit, $stringKeys) = @_;
+  #== $_[0], $_[1], $_[2],    $_[3],       $_[4] (don't assign to avoid copy)
   if(!ref $_[2]) {
     goto &dbReadOne;
   }
 
   #It is possible not to find a database in $dbReadOnly mode (for ex: refSeq for a while didn't have chrM)
   #http://ideone.com/uzpdZ8
-  my $db = $_[0]->_getDbi($_[1]) or return [];
+  #                      #$name, $dontCreate, $stringKeys
+  my $db = $_[0]->_getDbi($_[1], 0, $_[4]) or return [];
   my $dbi = $db->{dbi};
 
   if(!$db->{db}->Alive) {
@@ -207,14 +210,15 @@ sub dbRead {
 # dataHref should be {someTrackName => someData} that belongs at $chr:$pos
 # Currently only used for region tracks (currently only the Gene Track region track)
 sub dbPatchHash {
-  my ($self, $chr, $pos, $dataHref, $mergeFunc, $skipCommit, $overwrite) = @_;
+  my ($self, $chr, $pos, $dataHref, $mergeFunc, $skipCommit, $overwrite, $stringKeys) = @_;
 
   if(ref $dataHref ne 'HASH') {
     $self->_errorWithCleanup("dbPatchHash requires a 1-element hash of a hash");
     return 255;
   }
 
-  my $db = $self->_getDbi($chr);
+  # 0 argument means "create if not found"
+  my $db = $self->_getDbi($chr, 0, $stringKeys);
   my $dbi = $db->{dbi};
 
   if(!$db->{db}->Alive) {
@@ -303,9 +307,10 @@ sub dbPatchHash {
 #Method to write a single position into the main databse
 # Write transactions are by default committed
 sub dbPatch {
-  my ($self, $chr, $trackIndex, $pos, $trackValue, $mergeFunc, $skipCommit, $overwrite) = @_;
+  my ($self, $chr, $trackIndex, $pos, $trackValue, $mergeFunc, $skipCommit, $overwrite, $stringKeys) = @_;
 
-  my $db = $self->_getDbi($chr);
+  # 0 argument means "create if not found"
+  my $db = $self->_getDbi($chr, 0, $stringKeys);
   my $dbi = $db->{dbi};
 
   if(!$db->{db}->Alive) {
@@ -384,7 +389,7 @@ sub dbPatch {
 
 # Write transactions are by default committed
 sub dbPut {
-  my ($self, $chr, $pos, $data, $skipCommit) = @_;
+  my ($self, $chr, $pos, $data, $skipCommit, $stringKeys) = @_;
 
   if($self->dryRun) {
     $self->log('info', "DBManager dry run: would have dbPut $chr:$pos");
@@ -396,7 +401,8 @@ sub dbPut {
     return 255;
   }
 
-  my $db = $self->_getDbi($chr);
+  # 0 to create database if not found
+  my $db = $self->_getDbi($chr, 0, $stringKeys);
 
   if(!$db->{db}->Alive) {
     $db->{db}->Txn = $db->{env}->BeginTxn();
@@ -445,10 +451,12 @@ sub dbReadAll {
     $db->{db}->Txn->AutoCommit(1);
   }
 
+  # We store data in sequential, integer order
+  # in all but the meta tables, which don't use this function
   # LMDB::Cursor::open($txn, $db->{dbi}, my $cursor);
   my $cursor = $db->{db}->Cursor;
 
-  my ($key, $value, %out);
+  my ($key, $value, @out);
   while(1) {
     $cursor->_get($key, $value, MDB_NEXT);
 
@@ -465,7 +473,7 @@ sub dbReadAll {
       return 255;
     }
 
-    $out{$key} = $mp->unpack($value);
+    push @out, $mp->unpack($value);
   }
 
   #  !$skipCommit
@@ -481,11 +489,11 @@ sub dbReadAll {
   #reset the class error variable, to avoid crazy error reporting later
   $LMDB_File::last_err = 0;
 
-  return \%out;
+  return \@out;
 }
 
 sub dbDelete {
-  my ($self, $chr, $pos) = @_;
+  my ($self, $chr, $pos, $stringKeys) = @_;
 
   if($self->dryRun) {
     $self->log('info', "DBManager dry run: Would have dbDelete $chr\:$pos");
@@ -497,7 +505,7 @@ sub dbDelete {
     return 255;
   }
 
-  my $db = $self->_getDbi($chr);
+  my $db = $self->_getDbi($chr, $stringKeys);
   if(!$db->{db}->Alive) {
     $db->{db}->Txn = $db->{env}->BeginTxn();
     # not strictly necessary, but I am concerned about hard to trace abort bugs related to scope
@@ -541,7 +549,8 @@ state $metaDbNamePart = '_meta';
 sub dbReadMeta {
   my ($self, $databaseName, $metaKey, $skipCommit) = @_;
 
-  return $self->dbReadOne($databaseName . $metaDbNamePart, $metaKey, $skipCommit);
+  # pass 1 to use string keys for meta properties
+  return $self->dbReadOne($databaseName . $metaDbNamePart, $metaKey, $skipCommit, 1);
 }
 
 #@param <String> $databaseName : whatever the user wishes to prefix the meta name with
@@ -554,10 +563,13 @@ sub dbPatchMeta {
   my $dbName = $databaseName . $metaDbNamePart;
   # If the user treats this metaKey as a scalar value, overwrite whatever was there
   if(!ref $data) {
-    $self->dbPut($dbName, $metaKey, $data);
+    # undef : commit every transcation
+    # 1 : use string keys
+    $self->dbPut($dbName, $metaKey, $data, undef, 1);
   } else {
     # Pass 1 to merge $data with whatever was kept at this metaKey
-    $self->dbPatchHash($dbName, $metaKey, $data, undef, undef, 1);
+    # Pass 1 to use string keys for meta databases
+    $self->dbPatchHash($dbName, $metaKey, $data, undef, undef, 1, 1);
   }
 
   # Make sure that we update/sync the meta data asap, since this is critical
@@ -570,7 +582,8 @@ sub dbDeleteMeta {
   my ( $self, $databaseName, $metaKey ) = @_;
 
   #dbDelete returns nothing
-  $self->dbDelete($databaseName . $metaDbNamePart, $metaKey);
+  # last argument means non-integer keys
+  $self->dbDelete($databaseName . $metaDbNamePart, $metaKey, 1);
   return;
 }
 
@@ -583,7 +596,7 @@ sub _getDbi {
 
   #   $_[0]  $_[1], $_[2]
   # Don't create used by dbGetNumberOfEntries
-  my ($self, $name, $dontCreate) = @_;
+  my ($self, $name, $dontCreate, $stringKeys) = @_;
 
   my $dbPath = path($databaseDir)->child($name);
 
@@ -607,9 +620,9 @@ sub _getDbi {
 
   my $flags;
   if($dbReadOnly) {
-    $flags = MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY;
+    $flags = MDB_NOLOCK | MDB_NOSYNC | MDB_RDONLY | MDB_NORDAHEAD;
   } else {
-    $flags = MDB_NOSYNC;
+    $flags = MDB_NOSYNC | MDB_NORDAHEAD;
   }
 
   my $env = LMDB::Env->new($dbPath, {
@@ -630,7 +643,15 @@ sub _getDbi {
 
   my $txn = $env->BeginTxn();
 
-  my $DB = $txn->OpenDB();
+  my $dbFlags;
+
+  # Much faster random, somewhat faster sequential performance
+  # Much smaller database size (4 byte keys, vs 6-10 byte keys)
+  if(!$stringKeys) {
+    $dbFlags = MDB_INTEGERKEY;
+  }
+
+  my $DB = $txn->OpenDB(undef, $dbFlags);
 
   # ReadMode 1 gives memory pointer for perf reasons, not safe
   $DB->ReadMode(1);
@@ -664,7 +685,8 @@ sub dbForceCommit {
     # Sync in case MDB_NOSYNC, MDB_MAPASYNC, or MDB_NOMETASYNC were enabled
     # I assume that if the user is forcing commit, they also want the state of the
     # db updated
-    $envs->{$envName}{env}->sync();
+    # sync(1) flag needed to ensure that disk buffer is flushed with MDB_NOSYNC, MAPASYNC
+    $envs->{$envName}{env}->sync(1);
   } else {
     $self->_errorWithCleanup('dbManager expects existing environment in dbForceCommit');
   }
@@ -689,7 +711,8 @@ sub cleanUp {
       }
 
       # Sync in case MDB_NOSYNC, MDB_MAPASYNC, or MDB_NOMETASYNC were enabled
-      $envs->{$_}{env}->sync();
+      # sync(1) flag needed to ensure that disk buffer is flushed with MDB_NOSYNC, MAPASYNC
+      $envs->{$_}{env}->sync(1);
       $envs->{$_}{env}->Clean();
 
       delete $envs->{$_};

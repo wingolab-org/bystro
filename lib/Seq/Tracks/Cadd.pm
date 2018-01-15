@@ -16,6 +16,13 @@ extends 'Seq::Tracks::Get';
 state $order = Seq::Tracks::Cadd::Order->new();
 $order = $order->order;
 
+has scalingFactor => (is => 'ro', isa => 'Int', default => 10);
+
+sub BUILD {
+  my $self = shift;
+  $self->{_s} = $self->scalingFactor;
+}
+
 sub get {
   #my ($self, $href, $chr, $refBase, $allele, $outAccum, $alleleNumber) = @_
   # $_[0] == $self
@@ -45,15 +52,15 @@ sub get {
   }
   
   #if (defined $order->{ $refBase }{ $altAlleles } ) {
-  if ( defined $order->{$_[3]}{$_[4]} ) {
-    $_[7][$_[5]][$_[6]] = $_[1]->[$_[0]->{_dbName}][ $order->{$_[3]}{$_[4]} ];
+  if (defined $order->{$_[3]}{$_[4]} ) {
+    $_[7][$_[5]][$_[6]] = $_[1]->[$_[0]->{_dbName}][ $order->{$_[3]}{$_[4]} ] / $_[0]->{_s};
 
     return $_[7];
   }
 
   # For indels, which will be the least frequent, return it all
   if (length( $_[4] ) > 1) {
-    $_[7][$_[5]][$_[6]] = $_[1]->[ $_[0]->{_dbName} ];
+    $_[7][$_[5]][$_[6]] = [ map { $_ / $_[0]->{_s} } @{$_[1]->[ $_[0]->{_dbName} ]} ];
 
     return $_[7];
   }

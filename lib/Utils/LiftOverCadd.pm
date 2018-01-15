@@ -29,7 +29,7 @@ has liftOverPath => (is => 'ro', isa => Path, coerce => 1, default => 'liftOver'
 has liftOverChainPath => (is => 'ro', isa => AbsFile, coerce => 1, required => 1);
 
 my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
-sub liftOver {
+sub go {
   my $self = shift;
 
   my $liftOverExe = $self->liftOverPath;
@@ -143,9 +143,7 @@ sub liftOver {
 
   $self->_wantedTrack->{local_files} = \@finalOutPaths;
 
-  $self->_wantedTrack->{liftOverCadd_date} = $self->_dateOfRun;
-
-  $self->_backupAndWriteConfig();
+  $self->_backupAndWriteConfig('liftOverCadd');
 }
 
 __PACKAGE__->meta->make_immutable;

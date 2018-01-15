@@ -6,27 +6,27 @@ numericalFields:
     - pos
     - dbSNP.alleleNs
     - dbSNP.alleleFreqs
-    - refSeq.codonNumber
-    - refSeq.codonPosition
+    - ensembl.codonNumber
+    - ensembl.codonPosition
     - clinvar.alleleID
-    - refSeq.clinvar.alleleID
-    - refSeq.clinvar.chromStart
-    - refSeq.clinvar.numberSubmitters
+    - ensembl.clinvar.alleleID
+    - ensembl.clinvar.chromStart
+    - ensembl.clinvar.numberSubmitters
     - clinvar.numberSubmitters
 sort:
     cadd: avg
     dbSNP.alleleNs: avg
     dbSNP.alleleFreqs: min
-    refSeq.codonNumber: avg
-    refSeq.codonPosition: avg
+    ensembl.codonNumber: avg
+    ensembl.codonPosition: avg
 booleanFields:
    - discordant
 # These only refer to searchable exact fields
 # These should be case sensitive, they are, by definition, exact
 # hasExactFields:
-#     - refSeq.name2
-#     - refSeq.spDisplayID
-#     - refSeq.nearest.name2
+#     - ensembl.name2
+#     - ensembl.spDisplayID
+#     - ensembl.nearest.name2
 post_index_settings:
     index:
         refresh_interval: 15s
@@ -236,27 +236,38 @@ index_settings:
                     - catenate_filter
                     - english_stemmer
                     - dbSNP_func_synonyms
-            uppercase_keyword_text:
+            lowercase_keyword:
                 type: custom
                 tokenizer: keyword
                 filter:
-                    - uppercase
+                    - lowercase
                     - asciifolding
-            uppercase_keyword_text_codon:
+                    #- english_stop
+                    - catenate_filter
+                    - english_stemmer
+            lowercase_keyword_codon:
                 type: custom
                 tokenizer: keyword
                 filter:
-                    - uppercase
+                    - lowercase
                     - asciifolding
+                    #- english_stop
+                    - catenate_filter
+                    - english_stemmer
                     - codon_map_synonym_filter
                     - amino_synonym_filter
-            uppercase_keyword_text_amino:
+                    - search_synonym_filter
+            lowercase_keyword_amino:
                 type: custom
                 tokenizer: keyword
                 filter:
-                    - uppercase
+                    - lowercase
                     - asciifolding
+                    #- english_stop
+                    - catenate_filter
+                    - english_stemmer
                     - amino_synonym_filter
+                    - search_synonym_filter
 mappings:
     _all:
         enabled: false
@@ -300,7 +311,7 @@ mappings:
         ref:
             type: keyword
             normalizer: uppercase_normalizer
-        refSeq:
+        ensembl:
             properties:
                 siteType:
                     type: text
@@ -327,52 +338,24 @@ mappings:
                     normalizer: uppercase_normalizer
                 refAminoAcid:
                     type: text
-                    analyzer: uppercase_keyword_text
-                    search_analyzer: uppercase_keyword_text_amino
-                    fields:
-                        exact:
-                            type: keyword
-                            normalizer: uppercase_normalizer
+                    analyzer: lowercase_keyword
+                    search_analyzer: lowercase_keyword_amino
                 altAminoAcid:
                     type: text
-                    analyzer:  uppercase_keyword_text
-                    search_analyzer: uppercase_keyword_text_amino
-                    fields:
-                        exact:
-                            type: keyword
-                            normalizer: uppercase_normalizer
+                    analyzer:  lowercase_keyword
+                    search_analyzer: lowercase_keyword_amino
                 codonPosition:
                     type: byte
                 codonNumber:
                     type: integer
                 strand:
                     type: keyword
-                # kgID is in the form uc001uub.1 , seems to always be lowercase
-                kgID:
-                    type: keyword
-                    normalizer:  lowercase_normalizer
-                mRNA:
-                    type: keyword
-                    normalizer:  uppercase_normalizer
-                spID:
-                    type: keyword
-                    normalizer:  uppercase_normalizer
-                spDisplayID:
-                    type: keyword
-                    normalizer: uppercase_normalizer
                 name2:
                     type: keyword
                     normalizer: uppercase_normalizer
-                protAcc:
+                gene:
                     type: keyword
-                    normalizer:  uppercase_normalizer
-                description:
-                    type: text
-                    analyzer:  autocomplete_english_split
-                    search_analyzer: search_english_description_synonyms
-                rfamAcc:
-                    type: keyword
-                    normalizer:  uppercase_normalizer
+                    normalizer: uppercase_normalizer
                 name:
                     type: keyword
                     normalizer:  uppercase_normalizer
@@ -381,7 +364,7 @@ mappings:
                         name:
                             type: keyword
                             normalizer:  uppercase_normalizer
-                        name2:
+                        gene:
                             type: keyword
                             normalizer: uppercase_normalizer
                 clinvar:

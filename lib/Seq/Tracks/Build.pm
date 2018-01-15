@@ -101,6 +101,17 @@ has build_field_transformations => (
   default => sub { {} },
 );
 
+# The user can rename any input field, this will be used for the feature name
+# This makes it possible to store any name in the db, output file, in place
+# of the field name in the source file used to make the db
+# if fieldMap isn't specified, this property  will be filled with featureName => featureName
+has fieldMap => (is => 'ro', isa => 'HashRef', lazy => 1, default => sub {
+  my $self = shift;
+  my %data = map { $_ => $_ } @{$self->features};
+
+  return \%data;
+});
+
 # TODO: config output;
 has _emptyFieldRegex => (is => 'ro', isa => 'RegexpRef', init_arg => undef, default => sub { 
   my $output = Seq::Output->new();
@@ -138,8 +149,8 @@ sub BUILD {
 # We pass on to classes that extend this: 
 #   chrom_field_name with value "Chromosome"
 my $localFilesHandler = Seq::Tracks::Build::LocalFilesPaths->new();
-sub BUILDARGS {
-  my ($class, $href) = @_;
+around BUILDARGS => sub {
+  my ($orig, $class, $href) = @_;
 
   my %data = %$href;
 
@@ -150,7 +161,7 @@ sub BUILDARGS {
   $data{local_files} = $localFilesHandler->makeAbsolutePaths($href->{files_dir},
     $href->{name}, $href->{local_files});
 
-  return \%data;
+  return $class->$orig(\%data);
 };
 
 #########################Type Conversion, Input Field Filtering #########################
@@ -167,6 +178,7 @@ sub coerceFeatureType {
 
   my $type = $_[0]->getFeatureType( $_[1] );
 
+  # say "$type";
   # Don't mutate the input if no type is stated for the feature
   # if( !defined $type ) {
   #   return $_[2];
@@ -178,9 +190,13 @@ sub coerceFeatureType {
   # http://stackoverflow.com/questions/2059817/why-is-perl-foreach-variable-assignment-modifying-the-values-in-the-array
   # https://ideone.com/gjWQeS
   for my $val (ref $_[2] ? @{ $_[2] } : $_[2]) {
+    if(!defined $val) {
+      next;
+    }
+
     $val = $_[0]->coerceUndefinedValues($val);
 
-    if( defined $type && defined $val ) {
+    if( defined $type ) {
       $val = $converter->convert($val, $type);
     }
   }
@@ -265,8 +281,8 @@ sub passesFilter {
 }
 
 ######################### Field Transformations ###########################
-#for now I only need string concatenation
-state $transformOperators = ['.', 'split'];
+#TODO: taint check the modifying value
+state $transformOperators = ['.', 'split', '-', '+'];
 sub transformField {
   state $cachedTransform;
 
@@ -293,15 +309,45 @@ sub transformField {
       }
     }
 
+    if($leftHand eq '-') {
+      $codeRef = sub {
+        # my $fieldValue = shift;
+        # same as $_[0];
+
+        return $_[0] - $rightHand;
+      }
+    }
+
+    if($leftHand eq '+') {
+      $codeRef = sub {
+        # my $fieldValue = shift;
+        # same as $_[0];
+
+        return $_[0] + $rightHand;
+      }
+    }
+
     if($leftHand eq 'split') {
       $codeRef = sub {
         # my $fieldValue = shift;
         # same as $_[0];
         my @out;
+
+        # if trailing ,; or whichever specified delimiter
+        # remove so that no trailing undef value remains
+        $_[0] =~ s/\s*$rightHand\s*$//;
+
         # Some fields may contain no data after the delimiter,
         # which will lead to blank data, don't keep that
+        # TODO: skipping empty fields is dangerous; may lead to data that is
+        # ordered to fall out of order
+        # evalute the choice on line 349
         foreach(split(/$rightHand/, $_[0]) ) {
-          if($_ ne '') {
+          # Remove trailing/leading whitespace
+          $_ =~ s/^\s+//;
+          $_ =~ s/\s+$//;
+
+          if(defined $_ && $_ ne '') {
             push @out, $_;
           }
         }
@@ -310,6 +356,7 @@ sub transformField {
       }
     }
   } elsif($self->_isTransformOperator($rightHand) ) {
+    # Append text in the other direction
     if($rightHand eq '.') {
       $codeRef = sub {
        # my $fieldValue = shift;
@@ -317,6 +364,8 @@ sub transformField {
         return $leftHand . $_[0];
       }
     }
+
+    # Don't allow +/- as right hand operator, pointless and a little silly
   }
 
   if(!defined $codeRef) {

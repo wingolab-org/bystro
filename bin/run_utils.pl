@@ -9,6 +9,8 @@ use lib './lib';
 use Getopt::Long;
 use Path::Tiny qw/path/;
 use Pod::Usage;
+use YAML::XS qw/LoadFile/;
+use DDP;
 
 use Utils::CaddToBed;
 use Utils::Fetch;
@@ -16,13 +18,14 @@ use Utils::LiftOverCadd;
 use Utils::SortCadd;
 use Utils::RenameTrack;
 use Utils::FilterCadd;
+use Utils::RefGeneXdbnsfp;
 
 use Seq::Build;
 
 # TODO: refactor to automatically call util by string value
 # i.e: --util filterCadd launches Utils::FilterCadd
 my (
-  $yaml_config, $wantedName, $sortCadd, $filterCadd, $renameTrack,
+  $yaml_config, $names, $sortCadd, $filterCadd, $renameTrack, $utilName,
   $help,        $liftOverCadd, $liftOverPath, $liftOverChainPath,
   $debug,       $overwrite, $fetch, $caddToBed, $compress, $toBed,
   $renameTrackTo, $verbose, $dryRunInsertions, $maxThreads,
@@ -31,97 +34,73 @@ my (
 # usage
 GetOptions(
   'c|config=s'   => \$yaml_config,
-  'n|name=s'     => \$wantedName,
+  'n|name=s'     => \$names,
   'h|help'       => \$help,
+  'u|util=s'     => \$utilName,
   'd|debug=i'      => \$debug,
   'o|overwrite'  => \$overwrite,
-  'fetch' => \$fetch,
-  'caddToBed' => \$caddToBed,
-  'sortCadd'  => \$sortCadd,
-  'filterCadd' => \$filterCadd,
-  'renameTrack'  => \$renameTrack,
-  'liftOverCadd' => \$liftOverCadd,
-  'compress' => \$compress,
-  'liftOverPath=s' => \$liftOverPath,
-  'liftOverChainPath=s' => \$liftOverChainPath,
-  'renameTo=s' => \$renameTrackTo,
-  'verbose=i' => \$verbose,
-  'dryRun' => \$dryRunInsertions,
-  'maxThreads=i' => \$maxThreads,
+  'v|verbose=i' => \$verbose,
+  'r|dryRun' => \$dryRunInsertions,
+  'm|maxThreads=i' => \$maxThreads,
 );
 
-if ( (!$fetch && !$caddToBed && !$liftOverCadd && !$sortCadd && !$renameTrack && !$filterCadd) || $help) {
-  Pod::Usage::pod2usage(1);
-  exit;
-}
-
-unless ($yaml_config) {
+if ($help || !$yaml_config || !$names) {
   Pod::Usage::pod2usage();
 }
 
-my %options = (
-  config       => $yaml_config,
-  name         => $wantedName,
-  debug        => $debug,
-  overwrite    => $overwrite || 0,
-  verbose => $verbose,
-  dryRun => $dryRunInsertions,
-);
+for my $wantedName (split ',', $names) {
+  my $config = LoadFile($yaml_config);
+  my $utilConfigs;
+  my $trackIdx = 0;
 
-if($renameTrackTo) {
-  $options{renameTo} = $renameTrackTo;
+  my %options = (
+    config       => $yaml_config,
+    name         => $wantedName,
+    debug        => $debug,
+    overwrite    => $overwrite || 0,
+    verbose      => $verbose,
+    dryRun       => $dryRunInsertions,
+  );
+
+  if($maxThreads) {
+    $options{maxThreads} = $maxThreads;
+  }
+
+  for my $track (@{$config->{tracks}}) {
+    if($track->{name} eq $wantedName) {
+      $utilConfigs = $track->{utils};
+      last;
+    }
+
+    $trackIdx++;
+  }
+
+  if (!$utilConfigs) {
+    die "The $wantedName track must have 'utils' property";
+  }
+
+  for(my $utilIdx = 0; $utilIdx < @$utilConfigs; $utilIdx++) {
+    if($utilName && $utilConfigs->[$utilIdx]{name} ne $utilName) {
+      next;
+    }
+
+    # config may be mutated, by the last utility
+    $config = LoadFile($yaml_config);
+    my $utilConfig = $config->{tracks}[$trackIdx]{utils}[$utilIdx];
+
+    my $utilName = $utilConfig->{name};
+
+    # Uppercase the first letter of the utility class name
+    # aka user may specify "fetch" and we grab Utils::Fetch
+    my $className = 'Utils::' . uc( substr($utilName, 0, 1) ) . substr($utilName, 1, length($utilName) - 1);
+    my $args = $utilConfig->{args} || {};
+
+    my %finalOpts = (%options, %$args, (utilIdx => $utilIdx));
+
+    my $instance = $className->new(\%finalOpts);
+    $instance->go();
+  }
 }
-
-if($liftOverPath) {
-  $options{liftOverPath} = $liftOverPath;
-}
-
-if($liftOverChainPath) {
-  $options{liftOverChainPath} = $liftOverChainPath;
-}
-
-if($compress) {
-  $options{compress} = $compress;
-}
-
-if($maxThreads) {
-  $options{maxThreads} = $maxThreads;
-}
-
-# If user wants to split their local files, needs to happen before we build
-# So that the YAML config file has a chance to update
-if($caddToBed) {
-  my $caddToBedRunner = Utils::CaddToBed->new(\%options);
-  $caddToBedRunner->go();
-}
-
-if($fetch) {
-  my $fetcher = Utils::Fetch->new(\%options);
-  $fetcher->fetch();
-}
-
-if($liftOverCadd) {
-  my $liftOverCadd = Utils::LiftOverCadd->new(\%options);
-  $liftOverCadd->liftOver();
-}
-
-if($sortCadd) {
-  my $sortCadder = Utils::SortCadd->new(\%options);
-  $sortCadder->sort();
-}
-
-if($renameTrack) {
-  my $renamer = Utils::RenameTrack->new(\%options);
-  $renamer->go();
-}
-
-if($filterCadd) {
-  my $filterCadd = Utils::FilterCadd->new(\%options);
-  $filterCadd->go();
-}
-
-#say "done: " . $wantedType || $wantedName . $wantedChr ? ' for $wantedChr' : '';
-
 
 __END__
 
@@ -132,10 +111,14 @@ run_utils - Runs items in lib/Utils
 =head1 SYNOPSIS
 
 run_utils
-  --config <file>
-  --compress
-  --name
+  --config <yaml>
+  --name <track>
   [--debug]
+  [--verbose]
+  [--maxThreads]
+  [--dryRun]
+  [--overwrite]
+  [--help]
 
 =head1 DESCRIPTION
 

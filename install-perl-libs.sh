@@ -13,7 +13,8 @@ cpan install Cpanel::JSON::XS
 cpan install Mouse::Meta::Attribute::Custom::Trait::Array
 cpan install Net::HTTP
 cpan install Search::Elasticsearch
-cpan install Data::MessagePack
+cpan install Math::SigFigs
+# cpan install Data::MessagePack
 cpan install LMDB_File
 cpan install Sort::XS
 cpan install Hash::Merge::Simple
@@ -28,3 +29,11 @@ cpan install DBI
 cpan install DBD::mysql
 cpan install IO/FDPass.pm
 cpan install Beanstalk::Client
+
+# Custom branch of msgpack-perl that uses latest msgpack-c and
+# allows prefer_float32 flag for 5-byte float storage
+git clone --recursive https://github.com/akotlar/msgpack-perl.git && cd msgpack-perl
+perl Makefile.PL
+make test
+sudo make install
+cd ../ && rm -rf msgpack-perl
